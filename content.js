@@ -64,6 +64,24 @@ const observer = new MutationObserver((mutations) => {
 observer.observe(document.body, { childList: true, subtree: true });
 injectMicButtons(document.body);
 
+// ── Affichage debug à l'écran (lisible sur mobile, pas besoin de console) ─────
+
+function showDebug(text, value, source) {
+  let box = document.getElementById('vi-debug');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'vi-debug';
+    Object.assign(box.style, {
+      position: 'fixed', bottom: '0', left: '0', right: '0', zIndex: '2147483647',
+      background: 'rgba(0,0,0,0.85)', color: '#0f0', font: '12px monospace',
+      padding: '6px 10px', whiteSpace: 'pre-wrap', wordBreak: 'break-word'
+    });
+    box.addEventListener('click', () => box.remove()); // tap pour fermer
+    document.body.appendChild(box);
+  }
+  box.textContent = `🎤 "${text}"\n→ ${value}  [${source}]  (tap pour fermer)`;
+}
+
 function injectMicButtons(root) {
   const newInputs = [];
   for (const input of root.querySelectorAll(SELECTOR)) {
@@ -189,11 +207,8 @@ async function startSession(token, targetInput, onDone) {
     if (fieldFilled) return;
     let value = parseValue(text);
     console.log(`[VoiceInput] local: "${text}" → ${value}`);
+    let source = 'local';
 
-    // Appelle Gemini si :
-    // 1. parser local retourne null
-    // 2. OU la transcription contient un mot de fraction (demi, quart…) mais le résultat est un entier
-    //    ex: "Une barquette et demie" → 1 (faux), Gemini → 1.5 ✅
     const hasFraction = /\b(demi[e]?|quart|tiers|virgule)\b/i.test(text);
     const needsGemini = value === null || (hasFraction && Number.isInteger(value));
 
@@ -202,13 +217,16 @@ async function startSession(token, targetInput, onDone) {
         const r = await chrome.runtime.sendMessage({ type: 'GEMINI_PARSE', text });
         if (r.value != null) {
           value = r.value;
+          source = 'gemini';
           console.log(`[VoiceInput] Gemini: "${text}" → ${value}`);
         } else if (r.error) {
+          source = 'gemini-err';
           console.warn('[VoiceInput] Gemini erreur:', r.error);
         }
       } catch {}
     }
 
+    showDebug(text, value, source);
     if (value !== null) setFieldValue(value);
   }
 
