@@ -55,35 +55,26 @@ Exemples :
 Transcription : "${message.text}"
 Nombre :`;
 
-      // Appel avec 1 retry sur 429 (rate limit)
-      for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-          const res = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: { temperature: 0, maxOutputTokens: 10 }
-              })
-            }
-          );
-          if (res.status === 429 && attempt === 0) {
-            await new Promise(r => setTimeout(r, 3000)); // attend 3s avant retry
-            continue;
+      try {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: { temperature: 0, maxOutputTokens: 10 }
+            })
           }
-          if (!res.ok) { sendResponse({ error: `Gemini ${res.status}` }); return; }
-          const data = await res.json();
-          const raw = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-          const value = raw ? parseFloat(raw.replace(',', '.')) : null;
-          const result = (value != null && !isNaN(value)) ? value : null;
-          if (result !== null) cacheSet(geminiCache, cacheKey, result);
-          sendResponse({ value: result });
-          return;
-        } catch (err) { sendResponse({ error: err.message }); return; }
-      }
-      sendResponse({ error: 'Gemini 429 — quota dépassé' });
+        );
+        if (!res.ok) { sendResponse({ error: `Gemini ${res.status}` }); return; }
+        const data = await res.json();
+        const raw = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+        const value = raw ? parseFloat(raw.replace(',', '.')) : null;
+        const result = (value != null && !isNaN(value)) ? value : null;
+        if (result !== null) cacheSet(geminiCache, cacheKey, result);
+        sendResponse({ value: result });
+      } catch (err) { sendResponse({ error: err.message }); }
     });
     return true;
   }
