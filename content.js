@@ -12,6 +12,23 @@ const SELECTOR = [
   'input[name*="poids"]',
 ].join(',');
 
+// ── Cache token (pré-fetch à l'ouverture de popup) ───────────────────────────
+let _cachedToken = null, _tokenFetchedAt = 0;
+
+async function getToken() {
+  const age = Date.now() - _tokenFetchedAt;
+  if (_cachedToken && age < 50000) return _cachedToken; // valide < 50s
+  const { token, error } = await chrome.runtime.sendMessage({ type: 'GET_TOKEN' });
+  if (error) throw new Error(error);
+  _cachedToken = token;
+  _tokenFetchedAt = Date.now();
+  return token;
+}
+
+function prefetchToken() {
+  getToken().catch(() => {}); // silencieux, juste pour pré-charger
+}
+
 // ── Détection popup ───────────────────────────────────────────────────────────
 
 function getPopupContext(input) {
@@ -59,7 +76,10 @@ function injectMicButtons(root) {
 
   // Auto-démarre le premier champ si on est dans une popup
   const inPopup = getPopupContext(newInputs[0]) !== 'none';
-  if (inPopup) setTimeout(() => controls[0].start(), 400);
+  if (inPopup) {
+    prefetchToken(); // pré-fetch pendant le délai d'attente
+    setTimeout(() => controls[0].start(), 400);
+  }
 }
 
 function attachMicButton(input) {
@@ -86,8 +106,9 @@ function attachMicButton(input) {
     btn.disabled = true;
 
     try {
-      const { token, error } = await chrome.runtime.sendMessage({ type: 'GET_TOKEN' });
-      if (error) { showError(btn, error); active = false; return; }
+      let token;
+      try { token = await getToken(); }
+      catch (e) { showError(btn, e.message); active = false; return; }
 
       btn.textContent = '🔴';
       btn.disabled = false;
@@ -132,6 +153,7 @@ async function startSession(token, targetInput, onDone) {
   const ws = new WebSocket(url.toString());
   let audioCtx = null, processor = null, sessionReady = false;
   let lastPartialText = '', committed = false;
+  const audioBuffer = []; // chunks capturés avant session_started
 
   function fillField(text) {
     if (committed) return;
@@ -158,7 +180,12 @@ async function startSession(token, targetInput, onDone) {
     onDone(committed);
   }
 
-  ws.onopen = () => console.log('[VoiceInput] WebSocket connecté');
+  // Démarre la capture micro dès que le WS est ouvert — les chunks sont bufferisés
+  // et envoyés en rafale dès que session_started arrive (pas de parole perdue)
+  ws.onopen = () => {
+    console.log('[VoiceInput] WebSocket connecté');
+    startAudio(stream, ws);
+  };
 
   ws.onmessage = (e) => {
     let msg;
@@ -167,7 +194,9 @@ async function startSession(token, targetInput, onDone) {
 
     if (mtype === 'session_started' && !sessionReady) {
       sessionReady = true;
-      startAudio(stream, ws);
+      // Vide le buffer des chunks capturés pendant la connexion
+      for (const chunk of audioBuffer) ws.send(chunk);
+      audioBuffer.length = 0;
     }
 
     if (mtype === 'partial_transcript' && msg.text) {
@@ -193,27 +222,31 @@ async function startSession(token, targetInput, onDone) {
   };
 
   function startAudio(stream, ws) {
-    // Taux natif (Mac ~44100, Android 48000) — on rééchantillonne vers 16000
     audioCtx = new AudioContext();
     const nativeRate = audioCtx.sampleRate;
     const source = audioCtx.createMediaStreamSource(stream);
-    processor = audioCtx.createScriptProcessor(4096, 1, 1);
+    // Buffer 2048 sur desktop (128ms), 4096 sur mobile (256ms, plus stable)
+    const bufSize = /Mobi|Android/i.test(navigator.userAgent) ? 4096 : 2048;
+    processor = audioCtx.createScriptProcessor(bufSize, 1, 1);
 
     processor.onaudioprocess = (ev) => {
       if (ws.readyState !== WebSocket.OPEN) return;
       const input = ev.inputBuffer.getChannelData(0);
       const resampled = nativeRate !== 16000 ? resampleAudio(input, nativeRate, 16000) : input;
       const pcm = float32ToInt16(resampled);
-      ws.send(JSON.stringify({
+      const payload = JSON.stringify({
         message_type: 'input_audio_chunk',
         audio_base_64: bufferToBase64(pcm.buffer),
         sample_rate: 16000
-      }));
+      });
+      // Avant session_started : bufferiser ; après : envoyer directement
+      if (!sessionReady) audioBuffer.push(payload);
+      else ws.send(payload);
     };
 
     source.connect(processor);
     processor.connect(audioCtx.destination);
-    console.log('[VoiceInput] audio démarré (', nativeRate, '→ 16000 Hz)');
+    console.log(`[VoiceInput] audio démarré (${nativeRate}→16000Hz, buf=${bufSize})`);
   }
 
   return stop;
