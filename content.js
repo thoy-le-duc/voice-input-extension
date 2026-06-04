@@ -356,7 +356,8 @@ function parseValue(text) {
   const dGr = tDec.match(new RegExp(`(\\d+(?:\\.\\d+)?)\\s*${GR}`));
 
   if (dKg && dGr) return parseFloat(dKg[1]) + parseFloat(dGr[1]) / 1000;
-  if (dGr && !dKg) return parseFloat(dGr[1]) / 1000;
+  // Ne pas court-circuiter si un mot "kilo" est présent → laisser le chemin mots gérer
+  if (dGr && !dKg && !new RegExp(KG).test(tW)) return parseFloat(dGr[1]) / 1000;
   if (dKg) {
     const after = tDec.slice(tDec.search(new RegExp(KG)) + dKg[0].length)
       .replace(/^[^\w\d]+/, '').trim();
