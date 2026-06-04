@@ -190,8 +190,14 @@ async function startSession(token, targetInput, onDone) {
     let value = parseValue(text);
     console.log(`[VoiceInput] local: "${text}" → ${value}`);
 
-    if (value === null) {
-      // Fallback Gemini Flash
+    // Appelle Gemini si :
+    // 1. parser local retourne null
+    // 2. OU la transcription contient un mot de fraction (demi, quart…) mais le résultat est un entier
+    //    ex: "Une barquette et demie" → 1 (faux), Gemini → 1.5 ✅
+    const hasFraction = /\b(demi[e]?|quart|tiers|virgule)\b/i.test(text);
+    const needsGemini = value === null || (hasFraction && Number.isInteger(value));
+
+    if (needsGemini) {
       try {
         const r = await chrome.runtime.sendMessage({ type: 'GEMINI_PARSE', text });
         if (r.value != null) {
