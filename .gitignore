@@ -1,3 +1,5 @@
 .DS_Store
 *.log
 node_modules/
+*.pem
+voice-input-key*
