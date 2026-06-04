@@ -12,21 +12,27 @@ const SELECTOR = [
   'input[name*="poids"]',
 ].join(',');
 
-// ── Cache token (pré-fetch à l'ouverture de popup) ───────────────────────────
-let _cachedToken = null, _tokenFetchedAt = 0;
+// ── Token (single-use : pré-fetch à l'ouverture, invalidé après usage) ───────
+let _pendingToken = null, _pendingTokenAt = 0;
 
 async function getToken() {
-  const age = Date.now() - _tokenFetchedAt;
-  if (_cachedToken && age < 50000) return _cachedToken; // valide < 50s
+  // Utilise le token pré-fetché s'il est frais (< 55s)
+  if (_pendingToken && Date.now() - _pendingTokenAt < 55000) {
+    const t = _pendingToken;
+    _pendingToken = null; // single-use : invalide immédiatement
+    return t;
+  }
+  // Sinon fetch un nouveau
   const { token, error } = await chrome.runtime.sendMessage({ type: 'GET_TOKEN' });
   if (error) throw new Error(error);
-  _cachedToken = token;
-  _tokenFetchedAt = Date.now();
   return token;
 }
 
 function prefetchToken() {
-  getToken().catch(() => {}); // silencieux, juste pour pré-charger
+  chrome.runtime.sendMessage({ type: 'GET_TOKEN' })
+    .then(({ token, error }) => {
+      if (!error && token) { _pendingToken = token; _pendingTokenAt = Date.now(); }
+    }).catch(() => {});
 }
 
 // ── Détection popup ───────────────────────────────────────────────────────────
@@ -113,18 +119,18 @@ function attachMicButton(input) {
       btn.textContent = '🔴';
       btn.disabled = false;
 
-      let retries = 0;
+      let retried = false;
       const onSessionDone = (filled) => {
         active = false;
         stopFn = null;
         if (filled) {
           btn.textContent = '✅';
           if (nextControl) setTimeout(() => nextControl.start(), 300);
-        } else if (retries < 2 && getPopupContext(input) !== 'none') {
-          // Session fermée sans parole (timeout silence) → relance auto
-          retries++;
+        } else if (!retried && getPopupContext(input) !== 'none') {
+          // Une seule relance, délai 1s pour laisser le temps à ElevenLabs
+          retried = true;
           btn.textContent = '🎤';
-          setTimeout(start, 400);
+          setTimeout(start, 1000);
         } else {
           btn.textContent = '🎤';
         }
