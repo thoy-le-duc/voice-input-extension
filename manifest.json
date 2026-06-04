@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Voice Input - Casier Frais",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Saisie vocale des champs de poids via ElevenLabs Scribe v2 + Gemini Flash",
   "permissions": ["storage"],
   "host_permissions": [

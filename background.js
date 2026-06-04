@@ -1,5 +1,13 @@
 // Service worker — tokens ElevenLabs + parsing Gemini Flash
 
+// Cache des résultats Gemini (en mémoire, max 50 entrées)
+const geminiCache = new Map();
+const CACHE_MAX = 50;
+function cacheSet(map, key, val) {
+  if (map.size >= CACHE_MAX) map.delete(map.keys().next().value);
+  map.set(key, val);
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // ── Token ElevenLabs (single-use) ──────────────────────────────────────────
@@ -23,6 +31,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'GEMINI_PARSE') {
     chrome.storage.local.get(['geminiKey', 'geminiModel'], async ({ geminiKey, geminiModel }) => {
       if (!geminiKey) { sendResponse({ error: 'Clé Gemini non configurée.' }); return; }
+
+      // Cache en mémoire (service worker) — évite les doublons en cas de retry
+      const cacheKey = message.text.toLowerCase().trim();
+      if (geminiCache.has(cacheKey)) {
+        sendResponse({ value: geminiCache.get(cacheKey) });
+        return;
+      }
+
       const model = geminiModel || 'gemini-2.0-flash-lite';
       const prompt = `Tu extrais une valeur numérique d'une transcription vocale française pour un champ de saisie (poids en kg ou quantité en unités). Réponds UNIQUEMENT avec le nombre, point comme séparateur décimal.
 
@@ -39,24 +55,35 @@ Exemples :
 Transcription : "${message.text}"
 Nombre :`;
 
-      try {
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: { temperature: 0, maxOutputTokens: 10 }
-            })
+      // Appel avec 1 retry sur 429 (rate limit)
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const res = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: { temperature: 0, maxOutputTokens: 10 }
+              })
+            }
+          );
+          if (res.status === 429 && attempt === 0) {
+            await new Promise(r => setTimeout(r, 3000)); // attend 3s avant retry
+            continue;
           }
-        );
-        if (!res.ok) { sendResponse({ error: `Gemini ${res.status}` }); return; }
-        const data = await res.json();
-        const raw = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-        const value = raw ? parseFloat(raw.replace(',', '.')) : null;
-        sendResponse({ value: (value != null && !isNaN(value)) ? value : null });
-      } catch (err) { sendResponse({ error: err.message }); }
+          if (!res.ok) { sendResponse({ error: `Gemini ${res.status}` }); return; }
+          const data = await res.json();
+          const raw = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+          const value = raw ? parseFloat(raw.replace(',', '.')) : null;
+          const result = (value != null && !isNaN(value)) ? value : null;
+          if (result !== null) cacheSet(geminiCache, cacheKey, result);
+          sendResponse({ value: result });
+          return;
+        } catch (err) { sendResponse({ error: err.message }); return; }
+      }
+      sendResponse({ error: 'Gemini 429 — quota dépassé' });
     });
     return true;
   }
