@@ -162,6 +162,7 @@ async function startSession(token, targetInput, onDone) {
     if (mtype === 'committed_transcript') {
       if (msg.text) {
         const value = parseValue(msg.text);
+        console.log(`[VoiceInput] transcription: "${msg.text}" → valeur: ${value}`);
         if (value !== null) {
           filled = true;
           targetInput.value = value;
@@ -217,11 +218,13 @@ function bufferToBase64(buf) {
 // Extrait un nombre depuis du texte (FR)
 // Ex: "500 grammes" → 500, "1,2 kilo" → 1200, "cinq cents" → 500
 function parseValue(text) {
-  // Normalisation : virgule décimale → point, autres virgules → espace
+  // Normalisation
   const t = text.toLowerCase().trim()
     .replace(/[.!?]/g, '')
-    .replace(/(\d),(\d)/g, '$1.$2')
-    .replace(/,/g, ' ')
+    .replace(/(\d),(\d)/g, '$1.$2')       // virgule décimale → point
+    .replace(/,/g, ' ')                    // autres virgules → espace
+    .replace(/(\d)\s*kg\b/g, '$1 kilo')   // "8kg" ou "8 kg" → "8 kilo"
+    .replace(/(\d)\s*g\b/g, '$1 grammes') // "536g" ou "536 g" → "536 grammes"
     .replace(/\s+/g, ' ').trim();
 
   const wordMap = {
