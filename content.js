@@ -63,6 +63,42 @@ const observer = new MutationObserver((mutations) => {
 });
 observer.observe(document.body, { childList: true, subtree: true });
 injectMicButtons(document.body);
+addFullscreenButton();
+
+// ── Bouton plein écran (cache la barre d'adresse → look PWA) ──────────────────
+
+function addFullscreenButton() {
+  if (document.getElementById('vi-fs-btn')) return;
+
+  const btn = document.createElement('button');
+  btn.id = 'vi-fs-btn';
+  btn.type = 'button';
+  btn.textContent = '⛶';
+  btn.title = 'Plein écran';
+  Object.assign(btn.style, {
+    position: 'fixed', bottom: '16px', right: '16px', zIndex: '2147483647',
+    width: '44px', height: '44px', borderRadius: '50%', border: 'none',
+    background: 'rgba(99,102,241,0.92)', color: '#fff', fontSize: '20px',
+    cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    padding: '0', lineHeight: '1'
+  });
+
+  btn.addEventListener('click', () => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen?.();
+    } else {
+      document.documentElement.requestFullscreen?.().catch(() => {});
+    }
+  });
+
+  document.addEventListener('fullscreenchange', () => {
+    btn.textContent = document.fullscreenElement ? '⛗' : '⛶';
+    btn.title = document.fullscreenElement ? 'Quitter le plein écran' : 'Plein écran';
+  });
+
+  document.body.appendChild(btn);
+}
 
 function injectMicButtons(root) {
   const newInputs = [];
