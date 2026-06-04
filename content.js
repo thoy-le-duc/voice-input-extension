@@ -405,7 +405,24 @@ function parseValue(text) {
     }
   }
 
-  // "demi kilo" / "un kilo et demi"
+  // "X [unité quelconque] et demi(e)" → X + 0.5
+  // Fonctionne avec n'importe quel mot d'unité : barquette, sachet, litre…
+  if (/\bet\s+demi[e]?\b/i.test(tW)) {
+    const before = tW.split(/\bet\s+demi[e]?\b/i)[0];
+    const dm = before.match(/(\d+(?:\.\d+)?)/);
+    const n = dm ? parseFloat(dm[1]) : parseFrenchInt(before);
+    if (n > 0) return n + 0.5;
+  }
+
+  // "X [unité] et quart" → X + 0.25
+  if (/\bet\s+quart\b/i.test(tW)) {
+    const before = tW.split(/\bet\s+quart\b/i)[0];
+    const dm = before.match(/(\d+(?:\.\d+)?)/);
+    const n = dm ? parseFloat(dm[1]) : parseFrenchInt(before);
+    if (n > 0) return n + 0.25;
+  }
+
+  // "demi kilo" / "un kilo et demi" (avec unité kilo explicite)
   if (/demi/.test(tW) && new RegExp(KG).test(tW)) {
     const kgIdx = tW.search(new RegExp(KG));
     const demiIdx = tW.indexOf('demi');
