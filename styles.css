@@ -1,0 +1,43 @@
+.vi-mic-btn-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.vi-mic-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: #f0f0f0;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.vi-mic-btn:hover {
+  background: #e0e0e0;
+  transform: scale(1.08);
+}
+
+.vi-mic-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+  transform: none;
+}
+
+/* Pulsation quand enregistrement actif */
+.vi-mic-btn:not(:disabled)[textContent="🔴"] {
+  animation: vi-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes vi-pulse {
+  0%, 100% { background: #fee2e2; }
+  50%       { background: #fca5a5; }
+}

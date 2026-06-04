@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Voice Input - Casier Frais",
+  "version": "1.0",
+  "description": "Saisie vocale des champs de poids via ElevenLabs Scribe v2",
+  "permissions": ["storage"],
+  "host_permissions": ["https://api.elevenlabs.io/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["styles.css"]
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Voice Input - Réglages"
+  }
+}
