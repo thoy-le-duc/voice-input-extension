@@ -101,78 +101,101 @@ function attachMicButton(input) {
 
 async function startSession(token, targetInput, onDone) {
   const stream = await navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 16000 }
+    audio: { echoCancellation: true, noiseSuppression: true }
   });
 
-  const ws = new WebSocket(`wss://api.elevenlabs.io/v1/speech-to-text/realtime?token=${token}`);
-  const audioCtx = new AudioContext({ sampleRate: 16000 });
-  let processor = null;
+  // Paramètres dans l'URL (plus compatible mobile que session_config)
+  const url = new URL('wss://api.elevenlabs.io/v1/speech-to-text/realtime');
+  url.searchParams.set('token', token);
+  url.searchParams.set('model_id', 'scribe_v2_realtime');
+  url.searchParams.set('language_code', 'fr');
+  url.searchParams.set('commit_strategy', 'vad');
 
+  const ws = new WebSocket(url.toString());
+  let audioCtx = null, processor = null, sessionReady = false;
   let filled = false;
 
   function stop() {
     processor?.disconnect();
-    audioCtx.close();
+    if (audioCtx?.state !== 'closed') audioCtx?.close();
     stream.getTracks().forEach(t => t.stop());
-    if (ws.readyState === WebSocket.OPEN) ws.close();
+    if ([WebSocket.OPEN, WebSocket.CONNECTING].includes(ws.readyState)) ws.close();
     onDone(filled);
   }
 
   ws.onopen = () => {
-    ws.send(JSON.stringify({
-      type: 'session_config',
-      model_id: 'scribe_v2_realtime',
-      language_code: 'fr',
-      commit_strategy: 'vad',
-      audio_format: 'pcm_s16le',
-      sample_rate: 16000
-    }));
-
-    const source = audioCtx.createMediaStreamSource(stream);
-    processor = audioCtx.createScriptProcessor(4096, 1, 1);
-
-    processor.onaudioprocess = (e) => {
-      if (ws.readyState !== WebSocket.OPEN) return;
-      const pcm = float32ToInt16(e.inputBuffer.getChannelData(0));
-      ws.send(JSON.stringify({
-        type: 'input_audio_chunk',
-        audio_base_64: bufferToBase64(pcm.buffer),
-        sample_rate: 16000
-      }));
-    };
-
-    source.connect(processor);
-    processor.connect(audioCtx.destination);
+    // On attend session_started avant d'envoyer l'audio
   };
 
   ws.onmessage = (e) => {
     const msg = JSON.parse(e.data);
+    // ElevenLabs utilise message_type, on accepte aussi type pour compatibilité
+    const mtype = msg.message_type || msg.type;
 
-    if (msg.type === 'partial_transcript' && msg.text) {
+    // Démarre l'audio seulement quand la session est prête
+    if (mtype === 'session_started' && !sessionReady) {
+      sessionReady = true;
+      audioCtx = new AudioContext(); // taux natif du hardware (48000 sur Android)
+      const nativeRate = audioCtx.sampleRate;
+      const source = audioCtx.createMediaStreamSource(stream);
+      processor = audioCtx.createScriptProcessor(4096, 1, 1);
+      processor.onaudioprocess = (ev) => {
+        if (ws.readyState !== WebSocket.OPEN) return;
+        const input = ev.inputBuffer.getChannelData(0);
+        // Rééchantillonnage vers 16000 Hz si nécessaire (Android = 48000 natif)
+        const resampled = nativeRate !== 16000 ? resampleAudio(input, nativeRate, 16000) : input;
+        const pcm = float32ToInt16(resampled);
+        ws.send(JSON.stringify({
+          message_type: 'input_audio_chunk',
+          audio_base_64: bufferToBase64(pcm.buffer),
+          sample_rate: 16000
+        }));
+      };
+      source.connect(processor);
+      processor.connect(audioCtx.destination);
+    }
+
+    if (mtype === 'partial_transcript' && msg.text) {
       targetInput.placeholder = msg.text;
     }
 
-    if (msg.type === 'committed_transcript' && msg.text) {
-      const value = parseValue(msg.text);
-      if (value !== null) {
-        filled = true;
-        targetInput.value = value;
-        targetInput.dispatchEvent(new Event('input', { bubbles: true }));
-        targetInput.dispatchEvent(new Event('change', { bubbles: true }));
+    if (mtype === 'committed_transcript') {
+      if (msg.text) {
+        const value = parseValue(msg.text);
+        if (value !== null) {
+          filled = true;
+          targetInput.value = value;
+          targetInput.dispatchEvent(new Event('input', { bubbles: true }));
+          targetInput.dispatchEvent(new Event('change', { bubbles: true }));
+        }
       }
       stop();
     }
 
-    if (msg.type === 'error') {
+    if (mtype === 'input_error' || mtype === 'error') {
       console.error('[VoiceInput] ElevenLabs error:', msg);
       stop();
     }
   };
 
   ws.onerror = () => stop();
-  ws.onclose = () => { if (audioCtx.state !== 'closed') stop(); };
+  ws.onclose = () => { if (audioCtx?.state !== 'closed') stop(); };
 
-  return stop; // permet d'arrêter depuis l'extérieur
+  return stop;
+}
+
+// Rééchantillonnage linéaire (48000 Hz Android → 16000 Hz ElevenLabs)
+function resampleAudio(buffer, fromRate, toRate) {
+  const ratio = fromRate / toRate;
+  const newLength = Math.ceil(buffer.length / ratio);
+  const result = new Float32Array(newLength);
+  for (let i = 0; i < newLength; i++) {
+    const src = i * ratio;
+    const lo = Math.floor(src);
+    const hi = Math.min(lo + 1, buffer.length - 1);
+    result[i] = buffer[lo] + (buffer[hi] - buffer[lo]) * (src - lo);
+  }
+  return result;
 }
 
 // Convertit Float32 → Int16 PCM
