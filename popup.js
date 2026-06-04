@@ -1,3 +1,7 @@
+// Affiche la version
+const manifest = chrome.runtime.getManifest();
+document.getElementById('version').textContent = `v${manifest.version}`;
+
 const keyInput = document.getElementById('apiKey');
 const saveBtn = document.getElementById('save');
 const status = document.getElementById('status');
