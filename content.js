@@ -401,9 +401,17 @@ function parseValue(text) {
   // ── Fallback ──
   if (tW.includes('virgule')) { const v = parseFrenchDecimal(tW); if (v !== null) return v; }
 
-  // "8 537" ou "8 537." → 8 kg + 537 g = 8.537 (ElevenLabs sans unités)
+  // "8 537" ou "8 537." → 8 kg + 537 g = 8.537 (ElevenLabs sans unités, chiffres)
   const twoNum = tDec.match(/^(\d{1,3})\s+(\d{3})\.?\s*$/);
   if (twoNum) return parseFloat(twoNum[1]) + parseFloat(twoNum[2]) / 1000;
+
+  // "Huit, cinq cent trente-sept." → 8 + 537/1000 (sans unités, séparés par virgule)
+  const ci = text.indexOf(',');
+  if (ci > 0 && !new RegExp(KG + '|' + GR).test(tW)) {
+    const n1 = segToNum(text.slice(0, ci).trim().toLowerCase());
+    const n2 = segToNum(text.slice(ci + 1).replace(/[.!?\s]+$/, '').trim().toLowerCase());
+    if (n1 !== null && n2 !== null && n2 > 0 && n2 < 1000) return n1 + n2 / 1000;
+  }
 
   const numMatch = tDec.match(/(\d+(?:\.\d+)?)/);
   if (numMatch) return parseFloat(numMatch[1]);
