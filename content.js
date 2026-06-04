@@ -113,12 +113,23 @@ function attachMicButton(input) {
       btn.textContent = '🔴';
       btn.disabled = false;
 
-      stopFn = await startSession(token, input, (filled) => {
+      let retries = 0;
+      const onSessionDone = (filled) => {
         active = false;
-        btn.textContent = filled ? '✅' : '🎤';
         stopFn = null;
-        if (filled && nextControl) setTimeout(() => nextControl.start(), 300);
-      });
+        if (filled) {
+          btn.textContent = '✅';
+          if (nextControl) setTimeout(() => nextControl.start(), 300);
+        } else if (retries < 2 && getPopupContext(input) !== 'none') {
+          // Session fermée sans parole (timeout silence) → relance auto
+          retries++;
+          btn.textContent = '🎤';
+          setTimeout(start, 400);
+        } else {
+          btn.textContent = '🎤';
+        }
+      };
+      stopFn = await startSession(token, input, onSessionDone);
     } catch (err) {
       showError(btn, err.message);
       active = false;
@@ -153,7 +164,6 @@ async function startSession(token, targetInput, onDone) {
   const ws = new WebSocket(url.toString());
   let audioCtx = null, processor = null, sessionReady = false;
   let lastPartialText = '', committed = false;
-  const audioBuffer = []; // chunks capturés avant session_started
 
   function fillField(text) {
     if (committed) return;
@@ -180,12 +190,7 @@ async function startSession(token, targetInput, onDone) {
     onDone(committed);
   }
 
-  // Démarre la capture micro dès que le WS est ouvert — les chunks sont bufferisés
-  // et envoyés en rafale dès que session_started arrive (pas de parole perdue)
-  ws.onopen = () => {
-    console.log('[VoiceInput] WebSocket connecté');
-    startAudio(stream, ws);
-  };
+  ws.onopen = () => console.log('[VoiceInput] WebSocket connecté');
 
   ws.onmessage = (e) => {
     let msg;
@@ -194,9 +199,7 @@ async function startSession(token, targetInput, onDone) {
 
     if (mtype === 'session_started' && !sessionReady) {
       sessionReady = true;
-      // Vide le buffer des chunks capturés pendant la connexion
-      for (const chunk of audioBuffer) ws.send(chunk);
-      audioBuffer.length = 0;
+      startAudio(stream, ws); // démarre seulement quand ElevenLabs est prêt
     }
 
     if (mtype === 'partial_transcript' && msg.text) {
@@ -234,14 +237,11 @@ async function startSession(token, targetInput, onDone) {
       const input = ev.inputBuffer.getChannelData(0);
       const resampled = nativeRate !== 16000 ? resampleAudio(input, nativeRate, 16000) : input;
       const pcm = float32ToInt16(resampled);
-      const payload = JSON.stringify({
+      ws.send(JSON.stringify({
         message_type: 'input_audio_chunk',
         audio_base_64: bufferToBase64(pcm.buffer),
         sample_rate: 16000
-      });
-      // Avant session_started : bufferiser ; après : envoyer directement
-      if (!sessionReady) audioBuffer.push(payload);
-      else ws.send(payload);
+      }));
     };
 
     source.connect(processor);
