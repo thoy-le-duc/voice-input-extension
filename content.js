@@ -169,31 +169,53 @@ async function startSession(token, targetInput, onDone) {
 
   const ws = new WebSocket(url.toString());
   let audioCtx = null, processor = null, sessionReady = false;
-  let lastPartialText = '', committed = false;
+  let lastPartialText = '';
+  let transcriptReceived = false; // on a reçu du texte (même si Gemini pas encore fini)
+  let fieldFilled = false;        // le champ a été rempli
 
-  function fillField(text) {
-    if (committed) return;
-    committed = true;
-    const value = parseValue(text);
-    console.log(`[VoiceInput] transcription: "${text}" → valeur: ${value}`);
-    if (value !== null) {
-      const rounded = Math.round(value * 1000) / 1000;
-      const formatted = targetInput.type === 'number'
-        ? String(rounded)
-        : String(rounded).replace('.', ',');
-      targetInput.value = formatted;
-      targetInput.dispatchEvent(new Event('input', { bubbles: true }));
-      targetInput.dispatchEvent(new Event('change', { bubbles: true }));
+  function setFieldValue(value) {
+    if (fieldFilled) return;
+    fieldFilled = true;
+    const rounded = Math.round(value * 1000) / 1000;
+    const formatted = targetInput.type === 'number'
+      ? String(rounded)
+      : String(rounded).replace('.', ',');
+    targetInput.value = formatted;
+    targetInput.dispatchEvent(new Event('input', { bubbles: true }));
+    targetInput.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  async function fillAsync(text) {
+    if (fieldFilled) return;
+    let value = parseValue(text);
+    console.log(`[VoiceInput] local: "${text}" → ${value}`);
+
+    if (value === null) {
+      // Fallback Gemini Flash
+      try {
+        const r = await chrome.runtime.sendMessage({ type: 'GEMINI_PARSE', text });
+        if (r.value != null) {
+          value = r.value;
+          console.log(`[VoiceInput] Gemini: "${text}" → ${value}`);
+        } else if (r.error) {
+          console.warn('[VoiceInput] Gemini erreur:', r.error);
+        }
+      } catch {}
     }
+
+    if (value !== null) setFieldValue(value);
   }
 
   function stop(useLastPartial = false) {
-    if (useLastPartial && !committed && lastPartialText) fillField(lastPartialText);
+    if (useLastPartial && !transcriptReceived && lastPartialText) {
+      transcriptReceived = true;
+      fillAsync(lastPartialText);
+    }
     processor?.disconnect();
     if (audioCtx?.state !== 'closed') audioCtx?.close();
     stream.getTracks().forEach(t => t.stop());
     if ([WebSocket.OPEN, WebSocket.CONNECTING].includes(ws.readyState)) ws.close();
-    onDone(committed);
+    onDone(transcriptReceived);
   }
 
   ws.onopen = () => console.log('[VoiceInput] WebSocket connecté');
@@ -214,7 +236,7 @@ async function startSession(token, targetInput, onDone) {
     }
 
     if (mtype === 'committed_transcript') {
-      if (msg.text) fillField(msg.text);
+      if (msg.text) { transcriptReceived = true; fillAsync(msg.text); }
       stop();
     }
 
