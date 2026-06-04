@@ -215,81 +215,122 @@ function bufferToBase64(buf) {
   return btoa(str);
 }
 
-// Extrait un nombre depuis du texte (FR)
-// Ex: "500 grammes" → 500, "1,2 kilo" → 1200, "cinq cents" → 500
+// Parser de valeurs numériques FR — couvre tous les formats ElevenLabs
 function parseValue(text) {
-  // Normalisation
-  const t = text.toLowerCase().trim()
-    .replace(/[.!?]/g, '')
-    .replace(/(\d),(\d)/g, '$1.$2')       // virgule décimale → point
-    .replace(/,/g, ' ')                    // autres virgules → espace
-    .replace(/(\d)\s*kg\b/g, '$1 kilo')   // "8kg" ou "8 kg" → "8 kilo"
-    .replace(/(\d)\s*g\b/g, '$1 grammes') // "536g" ou "536 g" → "536 grammes"
-    .replace(/\s+/g, ' ').trim();
 
-  const wordMap = {
-    zéro: 0, un: 1, une: 1, deux: 2, trois: 3, quatre: 4, cinq: 5,
-    six: 6, sept: 7, huit: 8, neuf: 9, dix: 10, onze: 11, douze: 12,
-    treize: 13, quatorze: 14, quinze: 15, seize: 16, vingt: 20,
-    trente: 30, quarante: 40, cinquante: 50, soixante: 60,
-    cent: 100, cents: 100, mille: 1000
+  // ── ÉTAPE 1 : Normalisation ────────────────────────────────────────────
+  let t = text.toLowerCase().trim();
+
+  t = t.replace(/[.!?]/g, '');
+  t = t.replace(/(\d),(\d)/g, '$1.$2');       // "1,5" → "1.5"
+  t = t.replace(/,/g, ' ');                    // autres virgules → espace
+
+  // Toutes les variantes d'unités → forme canonique "kilo" / "gramme"
+  t = t.replace(/kilogramme[s]?/g, 'kilo');
+  t = t.replace(/\bkg\b/g, 'kilo');
+  t = t.replace(/\bgr?\b/g, 'gramme');         // "g" ou "gr" seuls
+  t = t.replace(/gramme[s]?/g, 'gramme');
+  t = t.replace(/kilo[s]?/g, 'kilo');
+
+  // Coller chiffre+unité → séparer  ("8kilo" → "8 kilo")
+  t = t.replace(/(\d)(kilo|gramme)/g, '$1 $2');
+
+  // Supprimer mots parasites
+  t = t.replace(/\b(et|de|environ|environ|à peu près)\b/g, ' ');
+
+  t = t.replace(/\s+/g, ' ').trim();
+
+  // ── ÉTAPE 2 : Table des mots-nombres FR ───────────────────────────────
+  const W = {
+    zéro:0, un:1, une:1, deux:2, trois:3, quatre:4, cinq:5,
+    six:6, sept:7, huit:8, neuf:9, dix:10, onze:11, douze:12,
+    treize:13, quatorze:14, quinze:15, seize:16,
+    'dix-sept':17, 'dix-huit':18, 'dix-neuf':19,
+    vingt:20, vingts:20, trente:30, quarante:40,
+    cinquante:50, soixante:60, septante:70,       // FR belge/suisse
+    huitante:80, octante:80, nonante:90,
+    cent:100, cents:100, mille:1000,
+    // Composés courants
+    'soixante-dix':70, 'quatre-vingts':80, 'quatre-vingt':80,
+    'quatre-vingt-dix':90,
   };
 
-  // Convertit une chaîne (chiffres ou mots) en nombre
+  function wordsToNum(str) {
+    const tokens = str.trim().split(/[\s-]+/).filter(Boolean);
+    let total = 0, cur = 0;
+    for (const w of tokens) {
+      // Essai direct du token composé (ex: "quatre-vingts")
+      const v = W[w] ?? W[tokens.join('-')];
+      if (v === undefined) continue;
+      if (v === 1000) { total += (cur || 1) * 1000; cur = 0; }
+      else if (v === 100) { cur = (cur || 1) * 100; }
+      else if (v >= 60 && cur > 0 && cur < 10) { cur = cur * 10 + v % 10; } // "quatre-vingts"
+      else cur += v;
+    }
+    return (total + cur) || null;
+  }
+
+  // Extrait un nombre d'un fragment (chiffres prioritaires, mots en fallback)
   function extractNum(str) {
     if (!str) return null;
     const s = str.trim();
     const m = s.match(/(\d+(?:\.\d+)?)/);
     if (m) return parseFloat(m[1]);
-    // Mots
-    let total = 0, cur = 0;
-    for (const w of s.split(/[\s-]+/)) {
-      const v = wordMap[w];
-      if (v === undefined) continue;
-      if (v === 1000) { total += (cur || 1) * 1000; cur = 0; }
-      else if (v === 100) cur = (cur || 1) * 100;
-      else cur += v;
+    return wordsToNum(s);
+  }
+
+  // ── ÉTAPE 3 : "X virgule Y" — nombre décimal dicté en mots ───────────
+  // ex: "un virgule cinq" → 1.5 / "zéro virgule trois" → 0.3
+  const vM = t.match(/^(.+?)\s+virgule\s+(.+?)(?:\s+kilo|\s+gramme|$)/);
+  if (vM) {
+    const intPart = extractNum(vM[1]);
+    const decPart = extractNum(vM[2]);
+    if (intPart !== null && decPart !== null) {
+      return parseFloat(`${intPart}.${decPart}`);
     }
-    total += cur;
-    return total > 0 ? total : null;
   }
 
-  // "X kilo(s) Y gramme(s)" — ex: "six kilos 238 grammes" → 6.238
-  const kgGr = t.match(/(.+?)\s+(?:kilo[s]?|kg)\s+(.+?)\s+gramme[s]?(?:\s|$)/);
-  if (kgGr) {
-    const kg = extractNum(kgGr[1]), gr = extractNum(kgGr[2]);
-    if (kg !== null && gr !== null) return kg + gr / 1000;
-  }
-
-  // "X kilo(s) Y" sans mot "grammes" — ex: "un kilo trois cent quarante-cinq" → 1.345
-  const kgImpl = t.match(/(.+?)\s+(?:kilo[s]?|kg)\s+(.+)/);
-  if (kgImpl) {
-    const kg = extractNum(kgImpl[1]);
-    const gr = extractNum(kgImpl[2].replace(/gramme[s]?/g, '').trim());
+  // ── ÉTAPE 4 : "X kilo Y gramme" — expression composée ────────────────
+  // ex: "8 kilo 536 gramme" → 8.536 / "six kilo deux cent gramme" → 6.2
+  const kgGrM = t.match(/(.+?)\s+kilo\s+(.+?)\s+gramme(?:\s|$)/);
+  if (kgGrM) {
+    const kg = extractNum(kgGrM[1]);
+    const gr = extractNum(kgGrM[2]);
     if (kg !== null && gr !== null) return kg + gr / 1000;
     if (kg !== null) return kg;
   }
 
-  // "X kilo(s)" seul — ex: "deux kilos" → 2
-  const kgOnly = t.match(/(.+?)\s+(?:kilo[s]?|kg)(?:\s|$)/);
-  if (kgOnly) {
-    const v = extractNum(kgOnly[1]);
+  // ── ÉTAPE 5 : "X kilo Y" — grammes implicites après kilo ─────────────
+  // ex: "un kilo trois cent quarante-cinq" → 1.345
+  const kgImpM = t.match(/(.+?)\s+kilo\s+(.+)/);
+  if (kgImpM) {
+    const kg = extractNum(kgImpM[1]);
+    const rest = kgImpM[2].replace(/gramme/g, '').trim();
+    const gr = extractNum(rest);
+    if (kg !== null && gr !== null) return kg + gr / 1000;
+    if (kg !== null) return kg;
+  }
+
+  // ── ÉTAPE 6 : "X kilo" seul ───────────────────────────────────────────
+  const kgM = t.match(/(.+?)\s+kilo(?:\s|$)/);
+  if (kgM) {
+    const v = extractNum(kgM[1]);
     if (v !== null) return v;
   }
 
-  // "X gramme(s)" — ex: "500 grammes" → 0.5
-  const grOnly = t.match(/(.+?)\s+gramme[s]?(?:\s|$)/);
-  if (grOnly) {
-    const v = extractNum(grOnly[1]);
+  // ── ÉTAPE 7 : "X gramme" seul ─────────────────────────────────────────
+  const grM = t.match(/(.+?)\s+gramme(?:\s|$)/);
+  if (grM) {
+    const v = extractNum(grM[1]);
     if (v !== null) return v / 1000;
   }
 
-  // Fallback : premier chiffre (ex: "2 unités" → 2)
+  // ── ÉTAPE 8 : nombre décimal ou entier brut ───────────────────────────
   const numM = t.match(/(\d+(?:\.\d+)?)/);
   if (numM) return parseFloat(numM[1]);
 
-  // Mots seuls (ex: "deux" → 2)
-  return extractNum(t);
+  // ── ÉTAPE 9 : mots seuls (ex: "deux" → 2, "cinq cents" → 500) ────────
+  return wordsToNum(t);
 }
 
 function showError(btn, msg) {
