@@ -67,7 +67,12 @@ Nombre :`;
             })
           }
         );
-        if (!res.ok) { sendResponse({ error: `Gemini ${res.status}` }); return; }
+        if (!res.ok) {
+          const body = await res.text();
+          console.error('[VoiceInput BG] Gemini PARSE', res.status, body);
+          sendResponse({ error: `${res.status} (${model}): ${body.slice(0, 200)}` });
+          return;
+        }
         const data = await res.json();
         const raw = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
         const value = raw ? parseFloat(raw.replace(',', '.')) : null;
