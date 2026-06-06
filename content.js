@@ -38,11 +38,16 @@ function prefetchToken() {
 // Verrou global : empêche deux sessions micro simultanées dans la page
 let sessionLock = false;
 
-// ── Réglage "toujours Gemini" (lu depuis le stockage, mis à jour en direct) ───
+// ── Réglages (lus depuis le stockage, mis à jour en direct) ──────────────────
 let geminiAlways = false;
-chrome.storage.local.get(['geminiAlways'], r => { geminiAlways = !!r.geminiAlways; });
+let engine = 'elevenlabs'; // 'elevenlabs' (rapide) ou 'gemini' (audio direct)
+chrome.storage.local.get(['geminiAlways', 'engine'], r => {
+  geminiAlways = !!r.geminiAlways;
+  if (r.engine) engine = r.engine;
+});
 chrome.storage.onChanged?.addListener(changes => {
   if (changes.geminiAlways) geminiAlways = !!changes.geminiAlways.newValue;
+  if (changes.engine) engine = changes.engine.newValue || 'elevenlabs';
 });
 
 // ── Détection popup ───────────────────────────────────────────────────────────
@@ -133,6 +138,15 @@ function attachMicButton(input) {
 
   function setNext(ctrl) { nextControl = ctrl; }
 
+  function onSessionDone(filled, errMsg) {
+    active = false;
+    sessionLock = false;
+    stopFn = null;
+    if (errMsg) { showError(btn, errMsg); return; } // ❌ + message au survol
+    btn.textContent = filled ? '✅' : '🎤';
+    if (filled && nextControl) setTimeout(() => nextControl.start(), 300);
+  }
+
   async function start() {
     if (active) return;
     if (sessionLock) return; // une seule session active dans toute la page
@@ -142,26 +156,20 @@ function attachMicButton(input) {
     btn.disabled = true;
 
     try {
-      let token;
-      try { token = await getToken(); }
-      catch (e) { showError(btn, e.message); active = false; sessionLock = false; return; }
-
-      btn.textContent = '🔴';
-      btn.disabled = false;
-
-      const onSessionDone = (filled, errMsg) => {
-        active = false;
-        sessionLock = false;
-        stopFn = null;
-        if (errMsg) {
-          showError(btn, errMsg); // affiche ❌ + message au survol
-          return;
-        }
-        btn.textContent = filled ? '✅' : '🎤';
-        // Passe au champ suivant seulement si celui-ci a été rempli
-        if (filled && nextControl) setTimeout(() => nextControl.start(), 300);
-      };
-      stopFn = await startSession(token, input, onSessionDone);
+      if (engine === 'gemini') {
+        // Mode Gemini direct : enregistre l'audio, l'envoie à Gemini
+        btn.textContent = '🔴';
+        btn.disabled = false;
+        stopFn = await startGeminiRecording(input, onSessionDone);
+      } else {
+        // Mode ElevenLabs : transcription temps réel
+        let token;
+        try { token = await getToken(); }
+        catch (e) { showError(btn, e.message); active = false; sessionLock = false; return; }
+        btn.textContent = '🔴';
+        btn.disabled = false;
+        stopFn = await startSession(token, input, onSessionDone);
+      }
     } catch (err) {
       showError(btn, err.message);
       active = false;
@@ -334,6 +342,84 @@ async function startSession(token, targetInput, onDone) {
   }
 
   return stop;
+}
+
+// ── Mode Gemini direct : enregistre l'audio et l'envoie à Gemini ──────────────
+
+async function startGeminiRecording(targetInput, onDone) {
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true }
+    });
+  } catch (err) {
+    onDone(false, err.name === 'NotAllowedError'
+      ? 'Micro refusé — autorise l\'accès' : err.message);
+    return () => {};
+  }
+
+  // Choisit un format audio supporté
+  const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg']
+    .find(m => MediaRecorder.isTypeSupported(m)) || '';
+  const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : {});
+  const chunks = [];
+  let stopped = false;
+
+  rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+
+  rec.onstop = async () => {
+    stream.getTracks().forEach(t => t.stop());
+    targetInput.placeholder = '⏳ analyse…';
+    const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
+    const audioB64 = await blobToBase64(blob);
+    try {
+      const r = await chrome.runtime.sendMessage({
+        type: 'GEMINI_AUDIO', audio: audioB64, mime: rec.mimeType || 'audio/webm'
+      });
+      if (r?.value != null) {
+        console.log(`[VoiceInput] Gemini audio → ${r.value}`);
+        showDebug('(audio Gemini)', r.value, 'gemini-audio');
+        fillInput(targetInput, r.value);
+        onDone(true);
+      } else {
+        onDone(false, r?.error ? 'Gemini : ' + r.error : null);
+      }
+    } catch (e) {
+      onDone(false, e.message);
+    }
+  };
+
+  rec.start();
+
+  // Sécurité : coupe après 12s max
+  const maxTimer = setTimeout(() => { if (!stopped) stopRec(); }, 12000);
+
+  function stopRec() {
+    if (stopped) return;
+    stopped = true;
+    clearTimeout(maxTimer);
+    if (rec.state !== 'inactive') rec.stop();
+  }
+
+  return stopRec; // tap micro = stop + envoi
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve) => {
+    const r = new FileReader();
+    r.onloadend = () => resolve(r.result.split(',')[1]); // retire le préfixe data:
+    r.readAsDataURL(blob);
+  });
+}
+
+// Remplit un champ (partagé entre les deux moteurs)
+function fillInput(targetInput, value) {
+  const rounded = Math.round(value * 1000) / 1000;
+  targetInput.value = targetInput.type === 'number'
+    ? String(rounded) : String(rounded).replace('.', ',');
+  targetInput.placeholder = '';
+  targetInput.dispatchEvent(new Event('input', { bubbles: true }));
+  targetInput.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
 // ── Audio utils ───────────────────────────────────────────────────────────────

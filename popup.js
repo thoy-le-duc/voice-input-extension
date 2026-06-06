@@ -1,6 +1,7 @@
 const manifest = chrome.runtime.getManifest();
 document.getElementById('version').textContent = `v${manifest.version}`;
 
+const engineSelect  = document.getElementById('engine');
 const keyInput      = document.getElementById('apiKey');
 const geminiInput   = document.getElementById('geminiKey');
 const modelSelect   = document.getElementById('geminiModel');
@@ -22,8 +23,9 @@ modelSelect.addEventListener('change', syncCustomVisibility);
 
 // Charge les valeurs existantes
 chrome.storage.local.get(
-  ['apiKey', 'geminiKey', 'geminiModel', 'geminiAlways'],
-  ({ apiKey, geminiKey, geminiModel, geminiAlways }) => {
+  ['apiKey', 'geminiKey', 'geminiModel', 'geminiAlways', 'engine'],
+  ({ apiKey, geminiKey, geminiModel, geminiAlways, engine }) => {
+    engineSelect.value = engine || 'elevenlabs';
     if (apiKey)    keyInput.placeholder    = '••••••••' + apiKey.slice(-4);
     if (geminiKey) geminiInput.placeholder = '••••••••' + geminiKey.slice(-4);
 
@@ -47,6 +49,7 @@ saveBtn.addEventListener('click', () => {
     : modelSelect.value;
 
   const toSave = {
+    engine: engineSelect.value,
     geminiAlways: alwaysCheck.checked,
     geminiModel: model
   };

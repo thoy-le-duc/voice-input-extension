@@ -79,4 +79,41 @@ Nombre :`;
     return true;
   }
 
+  // ── Transcription audio directe par Gemini (sans ElevenLabs) ────────────────
+  if (message.type === 'GEMINI_AUDIO') {
+    chrome.storage.local.get(['geminiKey', 'geminiModel'], async ({ geminiKey, geminiModel }) => {
+      if (!geminiKey) { sendResponse({ error: 'Clé Gemini non configurée.' }); return; }
+      // flash-lite ne gère pas toujours l'audio → on garantit un modèle compatible
+      let model = geminiModel || 'gemini-2.0-flash';
+      if (/lite/i.test(model)) model = model.replace(/-lite$/i, ''); // 2.5-flash-lite → 2.5-flash
+
+      const prompt = `Écoute cet audio en français. La personne dit un poids (kg) ou une quantité (unités). Réponds UNIQUEMENT avec le nombre correspondant, point comme séparateur décimal, rien d'autre.
+Exemples de réponses attendues : 8.537 / 0.5 / 2 / 1.345 / 3.5
+Si tu n'entends aucun nombre, réponds : null`;
+
+      try {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [
+                { text: prompt },
+                { inline_data: { mime_type: message.mime, data: message.audio } }
+              ] }],
+              generationConfig: { temperature: 0, maxOutputTokens: 10 }
+            })
+          }
+        );
+        if (!res.ok) { sendResponse({ error: `Gemini ${res.status}` }); return; }
+        const data = await res.json();
+        const raw = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+        const value = raw ? parseFloat(raw.replace(',', '.')) : null;
+        sendResponse({ value: (value != null && !isNaN(value)) ? value : null });
+      } catch (err) { sendResponse({ error: err.message }); }
+    });
+    return true;
+  }
+
 });
