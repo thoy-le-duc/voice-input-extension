@@ -137,21 +137,12 @@ function attachMicButton(input) {
       btn.textContent = '🔴';
       btn.disabled = false;
 
-      let retried = false;
       const onSessionDone = (filled) => {
         active = false;
         stopFn = null;
-        if (filled) {
-          btn.textContent = '✅';
-          if (nextControl) setTimeout(() => nextControl.start(), 300);
-        } else if (!retried && getPopupContext(input) !== 'none') {
-          // Une seule relance, délai 1s pour laisser le temps à ElevenLabs
-          retried = true;
-          btn.textContent = '🎤';
-          setTimeout(start, 1000);
-        } else {
-          btn.textContent = '🎤';
-        }
+        btn.textContent = filled ? '✅' : '🎤';
+        // Passe au champ suivant seulement si celui-ci a été rempli
+        if (filled && nextControl) setTimeout(() => nextControl.start(), 300);
       };
       stopFn = await startSession(token, input, onSessionDone);
     } catch (err) {
@@ -391,7 +382,15 @@ function clean(words) {
   return words.filter(w => !SKIP.has(w) && !/^\W+$/.test(w)).join(' ');
 }
 
-function parseValue(text) {
+function parseValue(rawText) {
+  // Corrige les fautes de transcription courantes de "kilo" par ElevenLabs
+  // (sur tablette : "kilo" entendu comme "guillo", "quilo"…)
+  const text = rawText
+    .replace(/\bguillot?s?\b/gi, 'kilo')
+    .replace(/\bgu[iy]los?\b/gi, 'kilo')
+    .replace(/\bqu[iy]ll?os?\b/gi, 'kilo')
+    .replace(/\bki?llos?\b/gi, 'kilo');
+
   // tDec : virgule décimale → point, ponctuation finale retirée
   const tDec = text.toLowerCase()
     .replace(/(\d),(\d)/g, '$1.$2')
@@ -461,7 +460,7 @@ function parseValue(text) {
   // Ne pas court-circuiter si un mot "kilo" est présent → laisser le chemin mots gérer
   if (dGr && !dKg && !new RegExp(KG).test(tW)) return parseFloat(dGr[1]) / 1000;
   if (dKg) {
-    const after = tDec.slice(tDec.search(new RegExp(KG)) + dKg[0].length)
+    const after = tDec.slice(dKg.index + dKg[0].length)
       .replace(/^[^\w\d]+/, '').trim();
     const bare = after.match(/^(\d+(?:\.\d+)?)/);  // pas de contrainte sur ce qui suit
     if (bare) {
@@ -513,6 +512,16 @@ function parseValue(text) {
     const n1 = segToNum(text.slice(0, ci).trim().toLowerCase());
     const n2 = segToNum(text.slice(ci + 1).replace(/[.!?\s]+$/, '').trim().toLowerCase());
     if (n1 !== null && n2 !== null && n2 > 0 && n2 < 1000) return n1 + n2 / 1000;
+  }
+
+  // "kilo 640" — kilo présent mais nombre de kilos perdu par ElevenLabs.
+  // On traite le nombre comme des grammes (0.640) plutôt que 640 kg absurde.
+  if (new RegExp(KG).test(tW)) {
+    const nm = tDec.match(/(\d+(?:\.\d+)?)/);
+    if (nm) {
+      const n = parseFloat(nm[1]);
+      return n >= 100 ? n / 1000 : n; // 640 → 0.640 ; 2 → 2 (probable nb de kilos)
+    }
   }
 
   const numMatch = tDec.match(/(\d+(?:\.\d+)?)/);
