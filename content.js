@@ -35,6 +35,9 @@ function prefetchToken() {
     }).catch(() => {});
 }
 
+// Verrou global : empêche deux sessions micro simultanées dans la page
+let sessionLock = false;
+
 // ── Réglage "toujours Gemini" (lu depuis le stockage, mis à jour en direct) ───
 let geminiAlways = false;
 chrome.storage.local.get(['geminiAlways'], r => { geminiAlways = !!r.geminiAlways; });
@@ -132,20 +135,23 @@ function attachMicButton(input) {
 
   async function start() {
     if (active) return;
+    if (sessionLock) return; // une seule session active dans toute la page
     active = true;
+    sessionLock = true;
     btn.textContent = '⏳';
     btn.disabled = true;
 
     try {
       let token;
       try { token = await getToken(); }
-      catch (e) { showError(btn, e.message); active = false; return; }
+      catch (e) { showError(btn, e.message); active = false; sessionLock = false; return; }
 
       btn.textContent = '🔴';
       btn.disabled = false;
 
       const onSessionDone = (filled) => {
         active = false;
+        sessionLock = false;
         stopFn = null;
         btn.textContent = filled ? '✅' : '🎤';
         // Passe au champ suivant seulement si celui-ci a été rempli
@@ -155,6 +161,7 @@ function attachMicButton(input) {
     } catch (err) {
       showError(btn, err.message);
       active = false;
+      sessionLock = false;
     }
   }
 
@@ -251,6 +258,7 @@ async function startSession(token, targetInput, onDone) {
     let msg;
     try { msg = JSON.parse(e.data); } catch { return; }
     const mtype = msg.message_type;
+    console.log('[VoiceInput] reçu:', mtype, msg.text ?? '');
 
     if (mtype === 'session_started' && !sessionReady) {
       sessionReady = true;
