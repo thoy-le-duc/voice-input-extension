@@ -51,6 +51,25 @@ chrome.storage.onChanged?.addListener(changes => {
   if (changes.parser) parser = changes.parser.newValue || 'local';
 });
 
+// ── Contexte du champ (pour aider l'IA à choisir le bon nombre) ──────────────
+
+function getFieldHint(input) {
+  const parts = [];
+  if (input.placeholder) parts.push(input.placeholder);
+  const al = input.getAttribute('aria-label'); if (al) parts.push(al);
+  if (input.id) {
+    const l = document.querySelector(`label[for="${CSS.escape(input.id)}"]`);
+    if (l) parts.push(l.textContent);
+  }
+  // Texte du conteneur proche (label visuel type "Quantité (kg)")
+  const box = input.closest('div, fieldset, form, [role="dialog"]');
+  if (box) {
+    const t = box.textContent.replace(/\s+/g, ' ').trim();
+    if (t && t.length < 120) parts.push(t);
+  }
+  return parts.join(' | ').replace(/\s+/g, ' ').trim().slice(0, 120);
+}
+
 // ── Détection popup ───────────────────────────────────────────────────────────
 
 function getPopupContext(input) {
@@ -203,6 +222,8 @@ async function startSession(token, targetInput, onDone) {
   url.searchParams.set('language_code', 'fr');
   url.searchParams.set('commit_strategy', 'vad');
 
+  const fieldHint = getFieldHint(targetInput); // capturé AVANT que les partials écrasent le placeholder
+
   const ws = new WebSocket(url.toString());
   let audioCtx = null, processor = null, sessionReady = false;
   let lastPartialText = '';
@@ -227,7 +248,7 @@ async function startSession(token, targetInput, onDone) {
     const type = useScaledown ? 'SCALEDOWN_PARSE' : 'GEMINI_PARSE';
     const name = useScaledown ? 'scaledown' : 'gemini';
     try {
-      const r = await chrome.runtime.sendMessage({ type, text });
+      const r = await chrome.runtime.sendMessage({ type, text, fieldHint });
       if (r?.value != null) return { value: r.value, source: name };
       if (r?.error) console.warn(`[VoiceInput] ${name} erreur:`, r.error);
     } catch {}

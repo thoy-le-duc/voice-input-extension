@@ -33,24 +33,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (!geminiKey) { sendResponse({ error: 'Clé Gemini non configurée.' }); return; }
 
       // Cache en mémoire (service worker) — évite les doublons en cas de retry
-      const cacheKey = message.text.toLowerCase().trim();
+      const cacheKey = (message.fieldHint || '') + '::' + message.text.toLowerCase().trim();
       if (geminiCache.has(cacheKey)) {
         sendResponse({ value: geminiCache.get(cacheKey) });
         return;
       }
 
       const model = geminiModel || 'gemini-2.0-flash-lite';
-      const prompt = `Tu extrais une valeur numérique d'une transcription vocale française pour un champ de saisie (poids en kg ou quantité en unités). Réponds UNIQUEMENT avec le nombre, point comme séparateur décimal.
+      const fieldInfo = message.fieldHint
+        ? `\n\nLe champ à remplir est : "${message.fieldHint}". Si c'est un poids en kg, donne le poids en kg. Si c'est une quantité en unités, donne le nombre d'unités.`
+        : '';
+      const prompt = `Tu extrais UNE valeur numérique d'une transcription vocale française, pour la saisir dans un champ.
+Règles :
+- La personne peut hésiter, se reprendre ou citer plusieurs nombres : prends la valeur FINALE qu'elle veut vraiment.
+- Ignore les nombres sans rapport (ex: "parce qu'il y a 14 courgettes" si le champ est un poids).
+- "X kilo Y" ou "X kilo Y grammes" = X + Y/1000 (ex: "1 kilo 415" = 1.415).
+- Réponds UNIQUEMENT par le nombre, point comme séparateur décimal. Si rien : null.${fieldInfo}
 
 Exemples :
 "Huit kilos, 537 grammes." → 8.537
+"Un kilo quatre cent quinze" → 1.415
+"on va mettre 1 kilo 415, euh non 600, bon 415" → 1.415
 "Trois barquettes et demi." → 3.5
 "500 grammes" → 0.5
 "deux" → 2
-"Un kilo trois cent quarante-cinq." → 1.345
-"un quart de kilo" → 0.25
-"une livre et demie" → 0.75
-"0,835" → 0.835
 
 Transcription : "${message.text}"
 Nombre :`;
