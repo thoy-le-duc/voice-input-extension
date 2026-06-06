@@ -24,11 +24,12 @@
     .hint-gemini { margin-top: 6px; font-size: 11px; color: #999; line-height: 1.4; }
     a { color: #6366f1; text-decoration: none; }
     .version { margin-top: 12px; font-size: 11px; color: #bbb; text-align: right; }
-    select {
+    select, input[type="text"] {
       width: 100%; padding: 8px 10px; border: 1px solid #ddd;
       border-radius: 6px; font-size: 13px; outline: none; background: #fff;
     }
-    select:focus { border-color: #6366f1; }
+    select:focus, input[type="text"]:focus { border-color: #6366f1; }
+    #geminiModelCustom { margin-top: 6px; }
     .check-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
     .check-row input { width: 16px; height: 16px; }
     .check-row label { margin: 0; font-size: 13px; color: #333; }
@@ -54,7 +55,9 @@
     <option value="gemini-2.0-flash-lite">Gemini 2.0 Flash-Lite</option>
     <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
     <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+    <option value="__custom__">Autre… (saisir le nom)</option>
   </select>
+  <input type="text" id="geminiModelCustom" placeholder="ex: gemini-3.1-flash-lite" autocomplete="off" style="display:none" />
 
   <div class="check-row">
     <input type="checkbox" id="geminiAlways" />

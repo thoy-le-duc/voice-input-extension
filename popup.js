@@ -1,12 +1,24 @@
 const manifest = chrome.runtime.getManifest();
 document.getElementById('version').textContent = `v${manifest.version}`;
 
-const keyInput     = document.getElementById('apiKey');
-const geminiInput  = document.getElementById('geminiKey');
-const modelInput   = document.getElementById('geminiModel');
-const alwaysCheck  = document.getElementById('geminiAlways');
-const saveBtn      = document.getElementById('save');
-const status       = document.getElementById('status');
+const keyInput      = document.getElementById('apiKey');
+const geminiInput   = document.getElementById('geminiKey');
+const modelSelect   = document.getElementById('geminiModel');
+const modelCustom   = document.getElementById('geminiModelCustom');
+const alwaysCheck   = document.getElementById('geminiAlways');
+const saveBtn       = document.getElementById('save');
+const status        = document.getElementById('status');
+
+const KNOWN_MODELS = [
+  'gemini-2.5-flash-lite', 'gemini-2.5-flash',
+  'gemini-2.0-flash-lite', 'gemini-2.0-flash', 'gemini-1.5-flash'
+];
+
+// Affiche le champ texte uniquement quand "Autre…" est sélectionné
+function syncCustomVisibility() {
+  modelCustom.style.display = modelSelect.value === '__custom__' ? 'block' : 'none';
+}
+modelSelect.addEventListener('change', syncCustomVisibility);
 
 // Charge les valeurs existantes
 chrome.storage.local.get(
@@ -14,7 +26,15 @@ chrome.storage.local.get(
   ({ apiKey, geminiKey, geminiModel, geminiAlways }) => {
     if (apiKey)    keyInput.placeholder    = '••••••••' + apiKey.slice(-4);
     if (geminiKey) geminiInput.placeholder = '••••••••' + geminiKey.slice(-4);
-    modelInput.value   = geminiModel || 'gemini-2.0-flash-lite';
+
+    const m = geminiModel || 'gemini-2.0-flash-lite';
+    if (KNOWN_MODELS.includes(m)) {
+      modelSelect.value = m;
+    } else {
+      modelSelect.value = '__custom__';   // modèle non listé → champ custom
+      modelCustom.value = m;
+    }
+    syncCustomVisibility();
     alwaysCheck.checked = !!geminiAlways;
   }
 );
@@ -22,12 +42,14 @@ chrome.storage.local.get(
 saveBtn.addEventListener('click', () => {
   const elevKey = keyInput.value.trim();
   const gemKey  = geminiInput.value.trim();
-  const model   = modelInput.value.trim();
+  const model   = modelSelect.value === '__custom__'
+    ? (modelCustom.value.trim() || 'gemini-2.0-flash-lite')
+    : modelSelect.value;
 
   const toSave = {
     geminiAlways: alwaysCheck.checked,
-    geminiModel: model || 'gemini-2.0-flash-lite'
-  }; // model vient du <select>, jamais vide
+    geminiModel: model
+  };
   if (elevKey) toSave.apiKey    = elevKey;
   if (gemKey)  toSave.geminiKey = gemKey;
 
