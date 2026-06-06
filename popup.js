@@ -14,7 +14,7 @@ chrome.storage.local.get(
   ({ apiKey, geminiKey, geminiModel, geminiAlways }) => {
     if (apiKey)    keyInput.placeholder    = '••••••••' + apiKey.slice(-4);
     if (geminiKey) geminiInput.placeholder = '••••••••' + geminiKey.slice(-4);
-    modelInput.value   = geminiModel || '';
+    modelInput.value   = geminiModel || 'gemini-2.0-flash-lite';
     alwaysCheck.checked = !!geminiAlways;
   }
 );
@@ -27,7 +27,7 @@ saveBtn.addEventListener('click', () => {
   const toSave = {
     geminiAlways: alwaysCheck.checked,
     geminiModel: model || 'gemini-2.0-flash-lite'
-  };
+  }; // model vient du <select>, jamais vide
   if (elevKey) toSave.apiKey    = elevKey;
   if (gemKey)  toSave.geminiKey = gemKey;
 

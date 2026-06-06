@@ -24,11 +24,11 @@
     .hint-gemini { margin-top: 6px; font-size: 11px; color: #999; line-height: 1.4; }
     a { color: #6366f1; text-decoration: none; }
     .version { margin-top: 12px; font-size: 11px; color: #bbb; text-align: right; }
-    input[type="text"] {
+    select {
       width: 100%; padding: 8px 10px; border: 1px solid #ddd;
-      border-radius: 6px; font-size: 13px; outline: none;
+      border-radius: 6px; font-size: 13px; outline: none; background: #fff;
     }
-    input[type="text"]:focus { border-color: #6366f1; }
+    select:focus { border-color: #6366f1; }
     .check-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
     .check-row input { width: 16px; height: 16px; }
     .check-row label { margin: 0; font-size: 13px; color: #333; }
@@ -48,7 +48,13 @@
   <p class="hint-gemini">Récupère ta clé sur <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com</a>.</p>
 
   <label for="geminiModel">Modèle Gemini</label>
-  <input type="text" id="geminiModel" placeholder="gemini-2.0-flash-lite" autocomplete="off" />
+  <select id="geminiModel">
+    <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash-Lite (rapide, éco)</option>
+    <option value="gemini-2.5-flash">Gemini 2.5 Flash (précis)</option>
+    <option value="gemini-2.0-flash-lite">Gemini 2.0 Flash-Lite</option>
+    <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+    <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+  </select>
 
   <div class="check-row">
     <input type="checkbox" id="geminiAlways" />
