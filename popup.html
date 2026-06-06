@@ -38,12 +38,19 @@
 <body>
   <h1>🎤 Voice Input — Casier Frais</h1>
 
-  <label for="engine">Moteur de transcription</label>
+  <label for="engine">Moteur de transcription (voix → texte)</label>
   <select id="engine">
     <option value="elevenlabs">ElevenLabs (rapide, temps réel)</option>
     <option value="gemini">Gemini audio (contourne le quota ElevenLabs)</option>
   </select>
-  <p class="hint">Gemini audio : enregistre puis envoie à Gemini. Plus lent mais ne dépend pas du quota ElevenLabs.</p>
+
+  <label for="parser">Interprétation (texte → nombre)</label>
+  <select id="parser">
+    <option value="local">Local (instantané, gratuit)</option>
+    <option value="gemini">Gemini (précis)</option>
+    <option value="scaledown">ScaleDown (extraction)</option>
+  </select>
+  <p class="hint">"Local" utilise une IA en secours si besoin. "Gemini"/"ScaleDown" interprètent tout via l'IA.</p>
 
   <hr/>
 
@@ -68,11 +75,11 @@
   </select>
   <input type="text" id="geminiModelCustom" placeholder="ex: gemini-3.1-flash-lite" autocomplete="off" style="display:none" />
 
-  <div class="check-row">
-    <input type="checkbox" id="geminiAlways" />
-    <label for="geminiAlways">Toujours utiliser Gemini (plus précis, plus lent)</label>
-  </div>
-  <p class="hint-gemini">Si coché, toutes les transcriptions passent par Gemini. Le parser local sert de secours si Gemini est indisponible.</p>
+  <hr/>
+
+  <label for="scaledownKey">Clé API ScaleDown</label>
+  <input type="password" id="scaledownKey" placeholder="x-api-key…" autocomplete="off" />
+  <p class="hint-gemini">Utilisée si "Interprétation" = ScaleDown. Doc : <a href="https://docs.scaledown.ai" target="_blank">docs.scaledown.ai</a>.</p>
 
   <button id="save">Enregistrer</button>
   <div id="status"></div>

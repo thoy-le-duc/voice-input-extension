@@ -39,15 +39,16 @@ function prefetchToken() {
 let sessionLock = false;
 
 // ── Réglages (lus depuis le stockage, mis à jour en direct) ──────────────────
-let geminiAlways = false;
-let engine = 'elevenlabs'; // 'elevenlabs' (rapide) ou 'gemini' (audio direct)
-chrome.storage.local.get(['geminiAlways', 'engine'], r => {
-  geminiAlways = !!r.geminiAlways;
+let engine = 'elevenlabs'; // transcription : 'elevenlabs' (rapide) ou 'gemini' (audio)
+let parser = 'local';      // interprétation texte→nombre : 'local' | 'gemini' | 'scaledown'
+chrome.storage.local.get(['parser', 'engine', 'geminiAlways'], r => {
   if (r.engine) engine = r.engine;
+  // rétrocompat : ancienne case "toujours Gemini"
+  parser = r.parser || (r.geminiAlways ? 'gemini' : 'local');
 });
 chrome.storage.onChanged?.addListener(changes => {
-  if (changes.geminiAlways) geminiAlways = !!changes.geminiAlways.newValue;
   if (changes.engine) engine = changes.engine.newValue || 'elevenlabs';
+  if (changes.parser) parser = changes.parser.newValue || 'local';
 });
 
 // ── Détection popup ───────────────────────────────────────────────────────────
@@ -220,31 +221,37 @@ async function startSession(token, targetInput, onDone) {
     targetInput.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
+  // Appelle un moteur IA d'interprétation (gemini ou scaledown)
+  async function aiParse(text) {
+    const useScaledown = parser === 'scaledown';
+    const type = useScaledown ? 'SCALEDOWN_PARSE' : 'GEMINI_PARSE';
+    const name = useScaledown ? 'scaledown' : 'gemini';
+    try {
+      const r = await chrome.runtime.sendMessage({ type, text });
+      if (r?.value != null) return { value: r.value, source: name };
+      if (r?.error) console.warn(`[VoiceInput] ${name} erreur:`, r.error);
+    } catch {}
+    return { value: null, source: name + '-err' };
+  }
+
   async function fillAsync(text) {
     if (fieldFilled) return;
     let value, source;
 
-    if (geminiAlways) {
-      // Mode "tout Gemini" : Gemini d'abord, parser local en secours
-      try {
-        const r = await chrome.runtime.sendMessage({ type: 'GEMINI_PARSE', text });
-        if (r.value != null) { value = r.value; source = 'gemini'; }
-        else if (r.error) { console.warn('[VoiceInput] Gemini erreur:', r.error); }
-      } catch {}
-      if (value == null) { value = parseValue(text); source = 'local-secours'; }
-    } else {
-      // Mode normal : parser local, Gemini si null ou fraction douteuse
+    if (parser === 'local') {
+      // Parser local, IA seulement si null ou fraction douteuse
       value = parseValue(text);
       source = 'local';
       const hasFraction = /\b(demi[e]?|quart|tiers|virgule)\b/i.test(text);
-      const needsGemini = value === null || (hasFraction && Number.isInteger(value));
-      if (needsGemini) {
-        try {
-          const r = await chrome.runtime.sendMessage({ type: 'GEMINI_PARSE', text });
-          if (r.value != null) { value = r.value; source = 'gemini'; }
-          else if (r.error) { source = 'gemini-err'; console.warn('[VoiceInput] Gemini erreur:', r.error); }
-        } catch {}
+      if (value === null || (hasFraction && Number.isInteger(value))) {
+        const r = await aiParse(text); // (gemini par défaut en secours)
+        if (r.value != null) { value = r.value; source = r.source; }
       }
+    } else {
+      // Mode IA (gemini/scaledown) : IA d'abord, parser local en secours
+      const r = await aiParse(text);
+      value = r.value; source = r.source;
+      if (value == null) { value = parseValue(text); source = 'local-secours'; }
     }
 
     console.log(`[VoiceInput] "${text}" → ${value} [${source}]`);

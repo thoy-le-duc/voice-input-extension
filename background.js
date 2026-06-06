@@ -121,4 +121,49 @@ Si tu n'entends aucun nombre, réponds : null`;
     return true;
   }
 
+  // ── Interprétation du texte par ScaleDown Extract ───────────────────────────
+  if (message.type === 'SCALEDOWN_PARSE') {
+    chrome.storage.local.get(['scaledownKey'], async ({ scaledownKey }) => {
+      if (!scaledownKey) { sendResponse({ error: 'Clé ScaleDown non configurée.' }); return; }
+
+      const cacheKey = 'sd:' + message.text.toLowerCase().trim();
+      if (geminiCache.has(cacheKey)) { sendResponse({ value: geminiCache.get(cacheKey) }); return; }
+
+      try {
+        const res = await fetch('https://api.scaledown.xyz/extract', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': scaledownKey },
+          body: JSON.stringify({
+            text: message.text,
+            instruction: "Convertis l'expression française d'un poids ou d'une quantité en un seul nombre décimal (kg). Ex: 'trois kilos cinquante'=3.05, 'huit kilos 537 grammes'=8.537, 'cinq cents grammes'=0.5, 'deux'=2, 'une livre et demie'=0.75.",
+            entities: {
+              valeur: 'La valeur numérique finale en nombre décimal (point comme séparateur)'
+            }
+          })
+        });
+        if (!res.ok) {
+          const body = await res.text();
+          console.error('[VoiceInput BG] ScaleDown', res.status, body);
+          sendResponse({ error: `${res.status}: ${body.slice(0, 200)}` });
+          return;
+        }
+        const data = await res.json();
+        // Cherche la valeur dans structured_result, sinon dans entities[].text
+        let raw = null;
+        const sr = data.structured_result;
+        if (sr && typeof sr === 'object') {
+          raw = sr.valeur ?? Object.values(sr).find(v => v != null);
+        }
+        if (raw == null && Array.isArray(data.entities) && data.entities[0]) {
+          raw = data.entities[0].text;
+        }
+        const value = raw != null ? parseFloat(String(raw).replace(',', '.')) : null;
+        const result = (value != null && !isNaN(value)) ? value : null;
+        if (result !== null) cacheSet(geminiCache, cacheKey, result);
+        sendResponse({ value: result });
+      } catch (err) { sendResponse({ error: err.message }); }
+    });
+    return true;
+  }
+
 });
