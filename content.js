@@ -288,11 +288,19 @@ async function startSession(token, targetInput, onDone) {
   };
 
   function startAudio(stream, ws) {
-    audioCtx = new AudioContext();
+    const isMobile = /Mobi|Android/i.test(navigator.userAgent);
+
+    // Desktop : AudioContext forcé à 16000 Hz (rééchantillonnage natif du navigateur,
+    //           c'est ce qui marchait à l'origine). Mobile : natif + resample manuel.
+    if (isMobile) {
+      audioCtx = new AudioContext();
+    } else {
+      try { audioCtx = new AudioContext({ sampleRate: 16000 }); }
+      catch { audioCtx = new AudioContext(); }
+    }
     const nativeRate = audioCtx.sampleRate;
     const source = audioCtx.createMediaStreamSource(stream);
-    // Buffer 2048 sur desktop (128ms), 4096 sur mobile (256ms, plus stable)
-    const bufSize = /Mobi|Android/i.test(navigator.userAgent) ? 4096 : 2048;
+    const bufSize = isMobile ? 4096 : 4096; // 4096 partout : plus stable
     processor = audioCtx.createScriptProcessor(bufSize, 1, 1);
 
     processor.onaudioprocess = (ev) => {
