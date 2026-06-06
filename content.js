@@ -35,6 +35,13 @@ function prefetchToken() {
     }).catch(() => {});
 }
 
+// ── Réglage "toujours Gemini" (lu depuis le stockage, mis à jour en direct) ───
+let geminiAlways = false;
+chrome.storage.local.get(['geminiAlways'], r => { geminiAlways = !!r.geminiAlways; });
+chrome.storage.onChanged?.addListener(changes => {
+  if (changes.geminiAlways) geminiAlways = !!changes.geminiAlways.newValue;
+});
+
 // ── Détection popup ───────────────────────────────────────────────────────────
 
 function getPopupContext(input) {
@@ -196,29 +203,34 @@ async function startSession(token, targetInput, onDone) {
 
   async function fillAsync(text) {
     if (fieldFilled) return;
-    let value = parseValue(text);
-    console.log(`[VoiceInput] local: "${text}" → ${value}`);
-    let source = 'local';
+    let value, source;
 
-    const hasFraction = /\b(demi[e]?|quart|tiers|virgule)\b/i.test(text);
-    const needsGemini = value === null || (hasFraction && Number.isInteger(value));
-
-    if (needsGemini) {
+    if (geminiAlways) {
+      // Mode "tout Gemini" : Gemini d'abord, parser local en secours
       try {
         const r = await chrome.runtime.sendMessage({ type: 'GEMINI_PARSE', text });
-        if (r.value != null) {
-          value = r.value;
-          source = 'gemini';
-          console.log(`[VoiceInput] Gemini: "${text}" → ${value}`);
-        } else if (r.error) {
-          source = 'gemini-err';
-          console.warn('[VoiceInput] Gemini erreur:', r.error);
-        }
+        if (r.value != null) { value = r.value; source = 'gemini'; }
+        else if (r.error) { console.warn('[VoiceInput] Gemini erreur:', r.error); }
       } catch {}
+      if (value == null) { value = parseValue(text); source = 'local-secours'; }
+    } else {
+      // Mode normal : parser local, Gemini si null ou fraction douteuse
+      value = parseValue(text);
+      source = 'local';
+      const hasFraction = /\b(demi[e]?|quart|tiers|virgule)\b/i.test(text);
+      const needsGemini = value === null || (hasFraction && Number.isInteger(value));
+      if (needsGemini) {
+        try {
+          const r = await chrome.runtime.sendMessage({ type: 'GEMINI_PARSE', text });
+          if (r.value != null) { value = r.value; source = 'gemini'; }
+          else if (r.error) { source = 'gemini-err'; console.warn('[VoiceInput] Gemini erreur:', r.error); }
+        } catch {}
+      }
     }
 
+    console.log(`[VoiceInput] "${text}" → ${value} [${source}]`);
     showDebug(text, value, source);
-    if (value !== null) setFieldValue(value);
+    if (value != null) setFieldValue(value);
   }
 
   function stop(useLastPartial = false) {

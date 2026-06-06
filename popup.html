@@ -24,6 +24,14 @@
     .hint-gemini { margin-top: 6px; font-size: 11px; color: #999; line-height: 1.4; }
     a { color: #6366f1; text-decoration: none; }
     .version { margin-top: 12px; font-size: 11px; color: #bbb; text-align: right; }
+    input[type="text"] {
+      width: 100%; padding: 8px 10px; border: 1px solid #ddd;
+      border-radius: 6px; font-size: 13px; outline: none;
+    }
+    input[type="text"]:focus { border-color: #6366f1; }
+    .check-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+    .check-row input { width: 16px; height: 16px; }
+    .check-row label { margin: 0; font-size: 13px; color: #333; }
   </style>
 </head>
 <body>
@@ -35,9 +43,18 @@
 
   <hr/>
 
-  <label for="geminiKey">Clé API Gemini <span style="color:#999">(fallback parsing)</span></label>
+  <label for="geminiKey">Clé API Gemini</label>
   <input type="password" id="geminiKey" placeholder="AIza..." autocomplete="off" />
-  <p class="hint-gemini">Utilisée uniquement quand le parser local échoue. Récupère ta clé sur <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com</a>.</p>
+  <p class="hint-gemini">Récupère ta clé sur <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com</a>.</p>
+
+  <label for="geminiModel">Modèle Gemini</label>
+  <input type="text" id="geminiModel" placeholder="gemini-2.0-flash-lite" autocomplete="off" />
+
+  <div class="check-row">
+    <input type="checkbox" id="geminiAlways" />
+    <label for="geminiAlways">Toujours utiliser Gemini (plus précis, plus lent)</label>
+  </div>
+  <p class="hint-gemini">Si coché, toutes les transcriptions passent par Gemini. Le parser local sert de secours si Gemini est indisponible.</p>
 
   <button id="save">Enregistrer</button>
   <div id="status"></div>
