@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Voice Input - Casier Frais",
-  "version": "1.5.4",
+  "version": "1.5.5",
   "description": "Saisie vocale des champs de poids via ElevenLabs Scribe v2 + Gemini Flash",
   "update_url": "https://raw.githubusercontent.com/thoy-le-duc/voice-input-extension/main/dist/update.xml",
   "permissions": ["storage"],

@@ -149,10 +149,14 @@ function attachMicButton(input) {
       btn.textContent = '🔴';
       btn.disabled = false;
 
-      const onSessionDone = (filled) => {
+      const onSessionDone = (filled, errMsg) => {
         active = false;
         sessionLock = false;
         stopFn = null;
+        if (errMsg) {
+          showError(btn, errMsg); // affiche ❌ + message au survol
+          return;
+        }
         btn.textContent = filled ? '✅' : '🎤';
         // Passe au champ suivant seulement si celui-ci a été rempli
         if (filled && nextControl) setTimeout(() => nextControl.start(), 300);
@@ -240,6 +244,8 @@ async function startSession(token, targetInput, onDone) {
     if (value != null) setFieldValue(value);
   }
 
+  let fatalError = null;
+
   function stop(useLastPartial = false) {
     if (useLastPartial && !transcriptReceived && lastPartialText) {
       transcriptReceived = true;
@@ -249,7 +255,7 @@ async function startSession(token, targetInput, onDone) {
     if (audioCtx?.state !== 'closed') audioCtx?.close();
     stream.getTracks().forEach(t => t.stop());
     if ([WebSocket.OPEN, WebSocket.CONNECTING].includes(ws.readyState)) ws.close();
-    onDone(transcriptReceived);
+    onDone(transcriptReceived, fatalError);
   }
 
   ws.onopen = () => console.log('[VoiceInput] WebSocket connecté');
@@ -275,7 +281,14 @@ async function startSession(token, targetInput, onDone) {
       stop();
     }
 
+    if (mtype === 'quota_exceeded') {
+      fatalError = 'Quota ElevenLabs dépassé — vérifie ton compte';
+      console.error('[VoiceInput] quota ElevenLabs dépassé');
+      stop();
+    }
+
     if (mtype === 'input_error' || mtype === 'error') {
+      fatalError = 'Erreur ElevenLabs : ' + (msg.message || msg.text || mtype);
       console.error('[VoiceInput] erreur ElevenLabs:', msg);
       stop(true);
     }
